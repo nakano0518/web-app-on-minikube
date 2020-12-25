@@ -1,7 +1,8 @@
+## PVは3つ作成する必要がある(StatefulSetのreplicasを3にしたので)
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: storage-volume
+  name: storage-volume-0
   namespace: default
   labels:
     app: weblog
@@ -13,16 +14,15 @@ spec:
   accessModes:
   - ReadWriteMany
   hostPath:
-    path: "/data/storage"
+    path: "/data/pv0000"
     type: Directory
-
 
 ---
 
 apiVersion: v1
-kind: PersistentVolumeClaim
+kind: PersistentVolume
 metadata:
-  name: storage-claim
+  name: storage-volume-1
   namespace: default
   labels:
     app: weblog
@@ -33,9 +33,29 @@ spec:
     storage: 1Gi
   accessModes:
   - ReadWriteMany
-  resources:
-    requests:
-      storage: 1Gi
+  hostPath:
+    path: "/data/pv0001"
+    type: Directory
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: storage-volume-2
+  namespace: default
+  labels:
+    app: weblog
+    type: storage
+spec:
+  storageClassName: slow
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteMany
+  hostPath:
+    path: "/data/pv0002"
+    type: Directory
 
 ---
 
@@ -55,48 +75,73 @@ data:
 
 ---
 
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: StatefulSet
 metadata:
-  name: mondodb
+  name: mongo
   namespace: default
   labels:
     app: weblog
     type: database
 spec:
-  containers:
-  - name: mongodb
-    image: weblog-db:v1.0.0
-    imagePullPolicy: Never
-    args: 
-    - "mongod"
-    - "--auth"
-    - "--bind_ip_all"
-    env:
-    - name: "MONGO_INITDB_ROOT_USERNAME"
-      valueFrom:
-        secretKeyRef:
-          name: mongo-secret
-          key: root_username
-    - name: "MONGO_INITDB_ROOT_DATABASE"
-      value: "admin"
-      valueFrom:
-        secretKeyRef:
-          name: mongo-secret
-          key: root_password
-    volumeMounts:
-    - mountPath: /data/db
+  replicas: 3
+  selector:
+    matchLabels:
+      app: weblog
+      type: database
+  serviceName: db-svc
+  template:
+    metadata:
+      name: mondodb
+      namespace: default
+      labels:
+        app: weblog
+        type: database
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: mongodb
+        image: weblog-db:v1.0.0
+        imagePullPolicy: Never
+        args: 
+        - "mongod"
+        - "--auth" # mongodコマンド実行時に認証をおこなう
+        - "--clusterAuthMode=keyfile"
+        - "--keyfile=/home/mongodb/keyfile"
+        - "--replSet=rs0"
+        - "--bind_ip_all"
+        env:
+        - name: "MONGO_INITDB_ROOT_USERNAME"
+          valueFrom:
+            secretKeyRef:
+              name: mongo-secret
+              key: root_username
+        - name: "MONGO_INITDB_ROOT_DATABASE"
+          value: "admin"
+          valueFrom:
+            secretKeyRef:
+              name: mongo-secret
+              key: root_password
+        volumeMounts:
+        - mountPath: /data/db
+          name: storage
+        - mountPath: /home/mongodb
+          name: secret
+      volumes:
+      - name: secret
+        secret:
+          secretName: mongo-secret
+          items:
+          - key: keyfile
+            name: keyfile
+            mode: 0700
+  volumeClaimTemplates:
+  - metadata: 
       name: storage
-    - mountPath: /home/mongodb
-      name: secret
-  volumes:
-  - name: storage
-    PersistentVolumeClaim:
-      claimName: storage-claim
-  - name: secret
-    secret:
-      secretName: mongo-secret
-      items:
-      - key: keyfile
-        name: keyfile
-        mode: 0700
+    spec:
+      accessClassName: slow
+      accessModes:
+      - ReadWriteMany
+      resources:
+        requests:
+          storage: 1Gi
