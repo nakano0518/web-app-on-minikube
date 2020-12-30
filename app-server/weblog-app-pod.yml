@@ -18,8 +18,8 @@ data:
 
 ---
 
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: nodeapp
   namespace: default
@@ -27,26 +27,45 @@ metadata:
     app: weblog
     type: application
 spec:
-  containers:
-  - name: node
-    image: weblog-app:v1.0.0
-    imagePullPolicy: Never
-    ports:
-    - containerPort: 3000
-    env:
-    - name: "MONGODB_USERNAME"
-      valueFrom:
-        secretKeyRef:
-          name: mongo-secret
-          key: weblog_username
-    - name: "MONGODB_PASSWORD"
-      valueFrom:
-        secretKeyRef:
-          name: mongo-secret
-          key: weblog_password
-    - name: "MONGODB_HOSTS"
-      value: "mongo-0.db-svc:27017, mongo-1.db-svc:27017, mongo-2.db-svc:27017"
-    - name: "MONGODB_DATABASE"
-      value: "weblog"
-    - name: "MONGODB_REPLICASET"
-      value: "rs0"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: weblog
+      type: application
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  revisionHistoryLimit: 14
+  template:
+    metadata:
+      name: nodeapp
+      namespace: default
+      labels:
+        app: weblog
+        type: application
+    spec:
+      containers:
+      - name: node
+        image: weblog-app:v1.0.0
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3000
+        env:
+        - name: "MONGODB_USERNAME"
+          valueFrom:
+            secretKeyRef:
+              name: mongo-secret
+              key: weblog_username
+        - name: "MONGODB_PASSWORD"
+          valueFrom:
+            secretKeyRef:
+              name: mongo-secret
+              key: weblog_password
+        - name: "MONGODB_HOSTS"
+          value: "mongo-0.db-svc:27017, mongo-1.db-svc:27017, mongo-2.db-svc:27017"
+        - name: "MONGODB_DATABASE"
+          value: "weblog"
+        - name: "MONGODB_REPLICASET"
+          value: "rs0"
